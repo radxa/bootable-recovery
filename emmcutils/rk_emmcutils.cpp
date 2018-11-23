@@ -24,8 +24,10 @@ int getEmmcState() {
     property_get("ro.bootmode", bootmode, "unknown");
     printf("bootmode = %s \n", bootmode);
 
-    if(!strcmp(bootmode, "nvme")) {
-	result = 2;
+    if(!strcmp(bootmode, "sd")) {
+        result = 3;
+    }else if(!strcmp(bootmode, "nvme")) {
+	    result = 2;
     } else if(!strcmp(bootmode, "emmc")) {
         result = 1;
     }else {
