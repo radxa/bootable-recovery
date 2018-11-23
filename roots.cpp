@@ -35,6 +35,9 @@
 #include "emmcutils/rk_emmcutils.h"
 #include "rktools.h"
 
+//add by lili@vamrs.com for adj userdata
+#define MAX_PATH_LEN 512
+int adj_userdata(const char* blk_device);
 
 static struct fstab *fstab = NULL;
 
@@ -332,6 +335,13 @@ int format_volume(const char* volume, const char* directory) {
             close(fd);
         }
 
+        //add by lili@vamrs.com to adj userdata
+        if (strcmp(volume, "/data") == 0){
+            adj_userdata(v->blk_device);
+            ui_print("re init volume\n");
+            v = volume_for_path(volume);
+        }
+
         ssize_t length = 0;
         if (v->length != 0) {
             length = v->length;
@@ -435,4 +445,75 @@ int setup_install_mounts() {
         }
     }
     return 0;
+}
+
+/* returns basename and keeps dirname in the @path */
+static char *stripoff_last_component(char *path)
+{
+    char *p = strrchr(path, '/');
+
+    if (!p)
+        return NULL;
+    *p = '\0';
+    return ++p;
+
+}
+
+int adj_userdata(const char* blk_device){
+
+    struct stat st = {0};
+    char real_block[MAX_PATH_LEN] = {0};
+    if(readlink(blk_device, real_block, MAX_PATH_LEN -1) < 0){
+        ui_print("read link error\n");
+        return -1;
+    }
+
+    ui_print("real_block path:%s\n", real_block);
+
+    if(stat((const char*)real_block, &st) != 0){
+        ui_print("stat error %s\n", real_block);
+        return -1;
+    }
+
+    char devPath[MAX_PATH_LEN] = {0};
+    int len = snprintf(devPath, MAX_PATH_LEN, "/sys/dev/block/%d:%d", major(st.st_rdev), 0);
+    if(len <= 0){
+        ui_print("snprintf error\n");
+        return -1;
+    }
+
+    char realDevPath[MAX_PATH_LEN] = {0};
+    if(readlink(devPath, realDevPath, MAX_PATH_LEN -1) < 0){
+        ui_print("readlink error\n");
+        return -1;
+    }
+
+    char* name = stripoff_last_component(realDevPath);
+
+    if(!name){
+        ui_print("stripoff_last_component error\n");
+        return -1;
+    }
+
+    ui_print("dev name:%s\n", name);
+
+    const char* parted_path = "/sbin/parted";
+    char* part_num;
+    char* dev_path;
+    len = asprintf(&part_num, "%d", minor(st.st_rdev));
+    if(len <= 0){
+        ui_print("part_num snprintf error\n");
+        return -1;
+    }
+    len = asprintf(&dev_path, "/dev/block/%s", name);
+    if(len <= 0){
+        ui_print("dev_path snprintf error\n");
+        return -1;
+    }
+
+    const char* const f2fs_argv[] = {"/sbin/parted", "-s", dev_path, "resizepart", part_num, "100%", NULL};
+    int result = run(parted_path, (char* const*)f2fs_argv);
+    free(part_num);
+    free(dev_path);
+    return result;
 }
